@@ -9,3 +9,5 @@ edition = "2018"
 [dependencies]
 reqwest = { version = "0.10", features = ["blocking", "json"] }
 clap = "2.33.3"
+base64 = "0.13.0"
+serde = { version = "1.0.116", features = ["derive"] }
