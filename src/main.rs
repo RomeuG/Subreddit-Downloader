@@ -23,15 +23,24 @@ fn main() {
         )
         .get_matches();
 
-    let subreddit = args.value_of("Subreddit").unwrap();
+    let arg_subreddit = args.value_of("Subreddit").unwrap();
 
-    let directory = args.value_of("Output").unwrap();
-    let directory_fs = std::fs::metadata(directory).unwrap();
+    let arg_directory = args.value_of("Output").unwrap();
+    let dir_metadata = std::fs::metadata(arg_directory).unwrap();
 
-    if !directory_fs.is_dir() {
+    if !dir_metadata.is_dir() {
         println!("Invalid path: not a directory!\n");
         std::process::exit(-1);
     }
+
+    let dir_str: String;
+    if !arg_directory.ends_with("/") {
+        dir_str = format!("{}/", arg_directory);
+    } else {
+        dir_str = String::from(arg_directory);
+    }
+
+    println!("Final directory str: {}", dir_str);
 
     let r_id = env::var("REDDIT_ID").unwrap();
     let r_secret = env::var("REDDIT_SECRET").unwrap();
