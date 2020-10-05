@@ -8,6 +8,29 @@ struct AccessToken {
     scope: String,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct JsonPage {
+    data: JsonPageData,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct JsonPageData {
+    children: Vec<JsonThread>,
+    after: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct JsonThread {
+    data: JsonThreadData,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct JsonThreadData {
+    title: String,
+    permalink: String,
+    url: String,
+}
+
 #[derive(Debug)]
 struct Reddit {
     id: String,
@@ -18,11 +41,19 @@ struct Reddit {
     remaining_requests: i32,
     reset_seconds: i32,
     used_requests: i32,
+    subreddit: String,
     access_token: Option<AccessToken>,
 }
 
 impl Reddit {
-    pub fn new(id: String, secret: String, user: String, pass: String, user_agent: String) -> Self {
+    pub fn new(
+        id: String,
+        secret: String,
+        user: String,
+        pass: String,
+        user_agent: String,
+        subreddit: String,
+    ) -> Self {
         Self {
             id,
             secret,
@@ -32,7 +63,32 @@ impl Reddit {
             remaining_requests: -1,
             reset_seconds: -1,
             used_requests: -1,
+            subreddit,
             access_token: None,
+        }
+    }
+
+    pub fn req_threads(&self, thread_list: Vec<String>) {
+        // authorization stuff
+        let header_auth = format!(
+            "Bearer {}",
+            self.access_token.as_ref().unwrap().access_token
+        );
+
+        for thread in thread_list {
+            let url = reqwest::Url::parse(&thread).unwrap();
+
+            let client = reqwest::blocking::Client::new();
+            let res = client
+                .get(url.clone())
+                .header(reqwest::header::USER_AGENT, &self.user_agent)
+                .header(reqwest::header::AUTHORIZATION, &header_auth)
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+
+            println!("Downloaded {}\n", url);
         }
     }
 
@@ -56,6 +112,80 @@ impl Reddit {
             .unwrap();
 
         self.access_token = Some(res.clone());
+    }
+
+    pub fn req_subreddit(&self) -> Vec<String> {
+        let mut thread_url_list: Vec<String> = vec![];
+
+        let url_fmt = format!("https://oauth.reddit.com/r/{}/.json", self.subreddit);
+        let url = reqwest::Url::parse(&url_fmt).unwrap();
+
+        // authorization stuff
+        let header_auth = format!(
+            "Bearer {}",
+            self.access_token.as_ref().unwrap().access_token
+        );
+
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(url)
+            .header(reqwest::header::USER_AGENT, &self.user_agent)
+            .header(reqwest::header::AUTHORIZATION, &header_auth)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+
+        let page = serde_json::from_str::<JsonPage>(&res).unwrap();
+        let mut after = page.data.after;
+
+        for permalink in page.data.children {
+            let thread_url = format!("https://oauth.reddit.com{}.json", permalink.data.permalink);
+            thread_url_list.push(thread_url);
+        }
+
+        while after.is_some() {
+            let next_url_fmt = format!(
+                "https://oauth.reddit.com/r/{}/.json?after={}",
+                self.subreddit,
+                after.unwrap()
+            );
+            let next_url = reqwest::Url::parse(&next_url_fmt).unwrap();
+
+            let next_client = reqwest::blocking::Client::new();
+            let next_res = next_client
+                .get(next_url)
+                .header(reqwest::header::USER_AGENT, &self.user_agent)
+                .header(reqwest::header::AUTHORIZATION, &header_auth)
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+
+            let next_page = serde_json::from_str::<JsonPage>(&next_res).unwrap();
+            after = next_page.data.after;
+
+            for permalink in &next_page.data.children {
+                let thread_url =
+                    format!("https://oauth.reddit.com{}.json", permalink.data.permalink);
+                thread_url_list.push(thread_url);
+            }
+
+            match &after {
+                Some(val) => {
+                    println!(
+                        "After: {} Children: {}\n",
+                        val,
+                        next_page.data.children.len()
+                    );
+                }
+                None => {
+                    break;
+                }
+            }
+        }
+
+        return thread_url_list;
     }
 }
 
@@ -107,8 +237,15 @@ fn main() {
     let r_pass = env::var("REDDIT_PASS").unwrap();
     let r_useragent = env::var("REDDIT_USERAGENT").unwrap();
 
-    let mut reddit_ctx = Reddit::new(r_id, r_secret, r_user, r_pass, r_useragent);
+    let mut reddit_ctx = Reddit::new(
+        r_id,
+        r_secret,
+        r_user,
+        r_pass,
+        r_useragent,
+        "emacs".to_string(),
+    );
     reddit_ctx.req_access_token();
-
-    println!("Hello, world!");
+    let thread_list = reddit_ctx.req_subreddit();
+    reddit_ctx.req_threads(thread_list);
 }
