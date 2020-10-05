@@ -68,7 +68,16 @@ impl Reddit {
         }
     }
 
-    pub fn req_threads(&self, thread_list: Vec<String>) {
+    fn check_sleep(&self) {
+        println!("Remaining requests: {} | Reset seconds: {}", self.remaining_requests, self.reset_seconds);
+
+        if self.remaining_requests == 0 {
+            println!("Sleeping for {} seconds...", self.reset_seconds);
+            std::thread::sleep(std::time::Duration::from_secs(self.reset_seconds as u64));
+        }
+    }
+
+    pub fn req_threads(&mut self, thread_list: Vec<String>) {
         // authorization stuff
         let header_auth = format!(
             "Bearer {}",
@@ -76,6 +85,8 @@ impl Reddit {
         );
 
         for thread in thread_list {
+            self.check_sleep();
+
             let url = reqwest::Url::parse(&thread).unwrap();
 
             let client = reqwest::blocking::Client::new();
@@ -84,11 +95,15 @@ impl Reddit {
                 .header(reqwest::header::USER_AGENT, &self.user_agent)
                 .header(reqwest::header::AUTHORIZATION, &header_auth)
                 .send()
-                .unwrap()
-                .text()
                 .unwrap();
 
             println!("Downloaded {}\n", url);
+
+            self.remaining_requests = res.headers().get("x-ratelimit-remaining").unwrap().to_str().unwrap().to_string().parse::<f32>().unwrap() as i32;
+            self.used_requests = res.headers().get("x-ratelimit-used").unwrap().to_str().unwrap().to_string().parse::<i32>().unwrap();
+            self.reset_seconds = res.headers().get("x-ratelimit-reset").unwrap().to_str().unwrap().to_string().parse::<i32>().unwrap();
+
+            let text = res.text().unwrap();
         }
     }
 
@@ -107,15 +122,17 @@ impl Reddit {
             .header(reqwest::header::USER_AGENT, &self.user_agent)
             .header(reqwest::header::AUTHORIZATION, &header_auth)
             .send()
-            .unwrap()
-            .json::<AccessToken>()
             .unwrap();
 
-        self.access_token = Some(res.clone());
+        let json = res.json::<AccessToken>().unwrap();
+
+        self.access_token = Some(json.clone());
     }
 
     pub fn req_subreddit(&self) -> Vec<String> {
         let mut thread_url_list: Vec<String> = vec![];
+
+        self.check_sleep();
 
         let url_fmt = format!("https://oauth.reddit.com/r/{}/.json", self.subreddit);
         let url = reqwest::Url::parse(&url_fmt).unwrap();
@@ -145,6 +162,8 @@ impl Reddit {
         }
 
         while after.is_some() {
+            self.check_sleep();
+
             let next_url_fmt = format!(
                 "https://oauth.reddit.com/r/{}/.json?after={}",
                 self.subreddit,
