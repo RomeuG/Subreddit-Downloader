@@ -69,7 +69,10 @@ impl Reddit {
     }
 
     fn check_sleep(&self) {
-        println!("Remaining requests: {} | Reset seconds: {}", self.remaining_requests, self.reset_seconds);
+        println!(
+            "Remaining requests: {} | Reset seconds: {}",
+            self.remaining_requests, self.reset_seconds
+        );
 
         if self.remaining_requests == 0 {
             println!("Sleeping for {} seconds...", self.reset_seconds);
@@ -77,7 +80,7 @@ impl Reddit {
         }
     }
 
-    pub fn req_threads(&mut self, thread_list: Vec<String>) {
+    pub fn req_threads(&mut self, outdir: &String, thread_list: Vec<String>) {
         // authorization stuff
         let header_auth = format!(
             "Bearer {}",
@@ -87,7 +90,8 @@ impl Reddit {
         for thread in thread_list {
             self.check_sleep();
 
-            let url = reqwest::Url::parse(&thread).unwrap();
+            let url_fmt = format!("https://oauth.reddit.com{}.json", thread);
+            let url = reqwest::Url::parse(&url_fmt).unwrap();
 
             let client = reqwest::blocking::Client::new();
             let res = client
@@ -99,11 +103,42 @@ impl Reddit {
 
             println!("Downloaded {}\n", url);
 
-            self.remaining_requests = res.headers().get("x-ratelimit-remaining").unwrap().to_str().unwrap().to_string().parse::<f32>().unwrap() as i32;
-            self.used_requests = res.headers().get("x-ratelimit-used").unwrap().to_str().unwrap().to_string().parse::<i32>().unwrap();
-            self.reset_seconds = res.headers().get("x-ratelimit-reset").unwrap().to_str().unwrap().to_string().parse::<i32>().unwrap();
+            let full_path = generate_full_path(outdir.clone(), get_thread_name(&thread));
+            println!("Full path: {}", full_path);
 
-            let text = res.text().unwrap();
+            self.remaining_requests = res
+                .headers()
+                .get("x-ratelimit-remaining")
+                .unwrap_or(&reqwest::header::HeaderValue::from_str("0.0").unwrap())
+                .to_str()
+                .unwrap()
+                .to_string()
+                .parse::<f32>()
+                .unwrap() as i32;
+            self.used_requests = res
+                .headers()
+                .get("x-ratelimit-used")
+                .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
+                .to_str()
+                .unwrap()
+                .to_string()
+                .parse::<i32>()
+                .unwrap();
+            self.reset_seconds = res
+                .headers()
+                .get("x-ratelimit-reset")
+                .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
+                .to_str()
+                .unwrap()
+                .to_string()
+                .parse::<i32>()
+                .unwrap();
+
+
+            let response_json: serde_json::Value = res.json().unwrap();
+            let pretty_printed = serde_json::to_string_pretty(&response_json).unwrap();
+
+            save_to_file(&full_path, &pretty_printed);
         }
     }
 
@@ -157,8 +192,7 @@ impl Reddit {
         let mut after = page.data.after;
 
         for permalink in page.data.children {
-            let thread_url = format!("https://oauth.reddit.com{}.json", permalink.data.permalink);
-            thread_url_list.push(thread_url);
+            thread_url_list.push(permalink.data.permalink.clone());
         }
 
         while after.is_some() {
@@ -185,9 +219,8 @@ impl Reddit {
             after = next_page.data.after;
 
             for permalink in &next_page.data.children {
-                let thread_url =
-                    format!("https://oauth.reddit.com{}.json", permalink.data.permalink);
-                thread_url_list.push(thread_url);
+                println!("Saving permalink: {}", permalink.data.permalink);
+                thread_url_list.push(permalink.data.permalink.clone());
             }
 
             match &after {
@@ -206,6 +239,52 @@ impl Reddit {
 
         return thread_url_list;
     }
+}
+
+fn get_thread_name(permalink: &String) -> String {
+    let mut slash_idx = 0;
+
+    for (i, c) in permalink.chars().enumerate() {
+        if i == permalink.len() - 1 {
+            break;
+        }
+
+        if c == '/' {
+            slash_idx = i;
+        }
+    }
+
+    let substring = &permalink[slash_idx + 1..permalink.len() - 1];
+
+    return substring.to_string();
+}
+
+fn generate_full_path(dir: String, permalink: String) -> String {
+    let mut duplicate = false;
+    let mut tries = 0;
+
+    let mut full_path = format!("{}{}.json", dir, permalink);
+
+    if std::path::Path::new(&full_path).exists() {
+        duplicate = true;
+    }
+
+    while duplicate == true {
+        full_path = format!("{}{}_{}.json", dir, permalink, tries);
+
+        if std::path::Path::new(&full_path).exists() {
+            duplicate = true;
+            tries += 1;
+        } else {
+            duplicate = false;
+        }
+    }
+
+    return full_path.to_string();
+}
+
+fn save_to_file(dir: &String, text: &String) {
+    std::fs::write(dir, text).expect("Unable to write file!");
 }
 
 fn main() {
@@ -266,5 +345,5 @@ fn main() {
     );
     reddit_ctx.req_access_token();
     let thread_list = reddit_ctx.req_subreddit();
-    reddit_ctx.req_threads(thread_list);
+    reddit_ctx.req_threads(&dir_str, thread_list);
 }
