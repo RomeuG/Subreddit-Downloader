@@ -1,6 +1,6 @@
 [package]
-name = "reddit-downloader-rust"
-version = "0.1.0"
+name = "subreddit-downloader"
+version = "1.0.0"
 authors = ["Romeu Vieira <romeu.bizz@gmail.com>"]
 edition = "2018"
 
