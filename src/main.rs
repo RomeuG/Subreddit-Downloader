@@ -247,12 +247,12 @@ impl Reddit {
 fn get_thread_name(permalink: &String) -> String {
     let mut slash_idx = 0;
 
-    for (i, c) in permalink.chars().enumerate() {
+    for (i, c) in permalink.bytes().enumerate() {
         if i == permalink.len() - 1 {
             break;
         }
 
-        if c == '/' {
+        if c == '/' as u8 {
             slash_idx = i;
         }
     }
