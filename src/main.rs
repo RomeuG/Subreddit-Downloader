@@ -344,7 +344,7 @@ fn main() {
         r_user,
         r_pass,
         r_useragent,
-        "emacs".to_string(),
+        arg_subreddit.to_string(),
     );
     reddit_ctx.req_access_token();
     let thread_list = reddit_ctx.req_subreddit();
