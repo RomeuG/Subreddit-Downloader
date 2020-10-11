@@ -80,6 +80,36 @@ impl Reddit {
         }
     }
 
+    fn parse_headers(&mut self, response: &reqwest::blocking::Response) {
+            self.remaining_requests = response
+                .headers()
+                .get("x-ratelimit-remaining")
+                .unwrap_or(&reqwest::header::HeaderValue::from_str("0.0").unwrap())
+                .to_str()
+                .unwrap_or("0.0")
+                .to_string()
+                .parse::<f32>()
+                .unwrap_or(0.0) as i32;
+            self.used_requests = response
+                .headers()
+                .get("x-ratelimit-used")
+                .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
+                .to_str()
+                .unwrap_or("0")
+                .to_string()
+                .parse::<i32>()
+                .unwrap_or(0);
+            self.reset_seconds = response
+                .headers()
+                .get("x-ratelimit-reset")
+                .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
+                .to_str()
+                .unwrap_or("0")
+                .to_string()
+                .parse::<i32>()
+                .unwrap_or(0);
+    }
+
     pub fn req_threads(&mut self, outdir: &String, thread_list: Vec<String>) {
         // authorization stuff
         let header_auth = format!(
@@ -106,34 +136,7 @@ impl Reddit {
             let full_path = generate_full_path(outdir.clone(), get_thread_name(&thread));
             println!("Full path: {}", full_path);
 
-            self.remaining_requests = res
-                .headers()
-                .get("x-ratelimit-remaining")
-                .unwrap_or(&reqwest::header::HeaderValue::from_str("0.0").unwrap())
-                .to_str()
-                .unwrap()
-                .to_string()
-                .parse::<f32>()
-                .unwrap() as i32;
-            self.used_requests = res
-                .headers()
-                .get("x-ratelimit-used")
-                .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
-                .to_str()
-                .unwrap()
-                .to_string()
-                .parse::<i32>()
-                .unwrap();
-            self.reset_seconds = res
-                .headers()
-                .get("x-ratelimit-reset")
-                .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
-                .to_str()
-                .unwrap()
-                .to_string()
-                .parse::<i32>()
-                .unwrap();
-
+            self.parse_headers(&res);
 
             let response_json: serde_json::Value = res.json().unwrap();
             let pretty_printed = serde_json::to_string_pretty(&response_json).unwrap();
