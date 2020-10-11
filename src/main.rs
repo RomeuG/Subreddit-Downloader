@@ -81,37 +81,38 @@ impl Reddit {
     }
 
     fn parse_headers(&mut self, response: &reqwest::blocking::Response) {
-            self.remaining_requests = response
-                .headers()
-                .get("x-ratelimit-remaining")
-                .unwrap_or(&reqwest::header::HeaderValue::from_str("0.0").unwrap())
-                .to_str()
-                .unwrap_or("0.0")
-                .to_string()
-                .parse::<f32>()
-                .unwrap_or(0.0) as i32;
-            self.used_requests = response
-                .headers()
-                .get("x-ratelimit-used")
-                .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
-                .to_str()
-                .unwrap_or("0")
-                .to_string()
-                .parse::<i32>()
-                .unwrap_or(0);
-            self.reset_seconds = response
-                .headers()
-                .get("x-ratelimit-reset")
-                .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
-                .to_str()
-                .unwrap_or("0")
-                .to_string()
-                .parse::<i32>()
-                .unwrap_or(0);
+        self.remaining_requests = response
+            .headers()
+            .get("x-ratelimit-remaining")
+            .unwrap_or(&reqwest::header::HeaderValue::from_str("0.0").unwrap())
+            .to_str()
+            .unwrap_or("0.0")
+            .to_string()
+            .parse::<f32>()
+            .unwrap_or(0.0) as i32;
+
+        self.used_requests = response
+            .headers()
+            .get("x-ratelimit-used")
+            .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
+            .to_str()
+            .unwrap_or("0")
+            .to_string()
+            .parse::<i32>()
+            .unwrap_or(0);
+
+        self.reset_seconds = response
+            .headers()
+            .get("x-ratelimit-reset")
+            .unwrap_or(&reqwest::header::HeaderValue::from_str("0").unwrap())
+            .to_str()
+            .unwrap_or("0")
+            .to_string()
+            .parse::<i32>()
+            .unwrap_or(0);
     }
 
     pub fn req_threads(&mut self, outdir: &String, thread_list: Vec<String>) {
-        // authorization stuff
         let header_auth = format!(
             "Bearer {}",
             self.access_token.as_ref().unwrap().access_token
@@ -131,7 +132,7 @@ impl Reddit {
                 .send()
                 .unwrap();
 
-            println!("Downloaded {}\n", url);
+            println!("Downloaded {}", url);
 
             let full_path = generate_full_path(outdir.clone(), get_thread_name(&thread));
             println!("Full path: {}", full_path);
@@ -149,7 +150,6 @@ impl Reddit {
         let url_fmt = format!("https://www.reddit.com/api/v1/access_token?grant_type=password&username={}&password={}", self.user, self.pass);
         let url = reqwest::Url::parse(&url_fmt).unwrap();
 
-        // authorization stuff
         let auth_plain = format!("{}:{}", self.id, self.secret);
         let auth_b64 = base64::encode(auth_plain);
         let header_auth = format!("Basic {}", auth_b64);
@@ -175,7 +175,6 @@ impl Reddit {
         let url_fmt = format!("https://oauth.reddit.com/r/{}/.json", self.subreddit);
         let url = reqwest::Url::parse(&url_fmt).unwrap();
 
-        // authorization stuff
         let header_auth = format!(
             "Bearer {}",
             self.access_token.as_ref().unwrap().access_token
@@ -292,9 +291,9 @@ fn save_to_file(dir: &String, text: &String) {
 
 fn main() {
     let args = clap::App::new("reddit-downloader")
-        .version("0.1")
+        .version("1.0")
         .author("Romeu Vieira <romeu.bizz@gmail.com>")
-        .about("Download Reddit threads!")
+        .about("Download Reddit threads in JSON format")
         .arg(
             clap::Arg::with_name("Output")
                 .short("o")
@@ -330,8 +329,6 @@ fn main() {
         dir_str = String::from(arg_directory);
     }
 
-    println!("Final directory str: {}", dir_str);
-
     let r_id = env::var("REDDIT_ID").unwrap();
     let r_secret = env::var("REDDIT_SECRET").unwrap();
     let r_user = env::var("REDDIT_USER").unwrap();
@@ -346,6 +343,7 @@ fn main() {
         r_useragent,
         arg_subreddit.to_string(),
     );
+
     reddit_ctx.req_access_token();
     let thread_list = reddit_ctx.req_subreddit();
     reddit_ctx.req_threads(&dir_str, thread_list);
