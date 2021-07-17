@@ -1,4 +1,5 @@
 use std::env;
+use std::error::Error;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct AccessToken {
@@ -112,38 +113,42 @@ impl Reddit {
             .unwrap_or(0);
     }
 
-    pub fn req_threads(&mut self, outdir: &String, thread_list: Vec<String>) {
+    pub async fn req_threads(&mut self, outdir: &String, thread_list: Vec<String>) {
         let header_auth = format!(
             "Bearer {}",
             self.access_token.as_ref().unwrap().access_token
         );
 
         for thread in thread_list {
-            self.check_sleep();
-
-            let url_fmt = format!("https://oauth.reddit.com{}.json", thread);
-            let url = reqwest::Url::parse(&url_fmt).unwrap();
-
-            let client = reqwest::blocking::Client::new();
-            let res = client
-                .get(url.clone())
-                .header(reqwest::header::USER_AGENT, &self.user_agent)
-                .header(reqwest::header::AUTHORIZATION, &header_auth)
-                .send()
-                .unwrap();
-
-            println!("Downloaded {}", url);
-
-            let full_path = generate_full_path(outdir.clone(), get_thread_name(&thread));
-            println!("Full path: {}", full_path);
-
-            self.parse_headers(&res);
-
-            let response_json: serde_json::Value = res.json().unwrap();
-            let pretty_printed = serde_json::to_string_pretty(&response_json).unwrap();
-
-            save_to_file(&full_path, &pretty_printed);
+            self.get_thread(outdir, &thread, &header_auth).await;
         }
+    }
+
+    async fn get_thread(&mut self, outdir: &String, thread_name: &String, header_auth: &String) {
+        self.check_sleep();
+
+        let url_fmt = format!("https://oauth.reddit.com{}.json", thread_name);
+        let url = reqwest::Url::parse(&url_fmt).unwrap();
+
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(url.clone())
+            .header(reqwest::header::USER_AGENT, &self.user_agent)
+            .header(reqwest::header::AUTHORIZATION, header_auth)
+            .send()
+            .unwrap();
+
+        println!("Downloaded {}", url);
+
+        let full_path = generate_full_path(outdir.clone(), get_thread_name(&thread_name));
+        println!("Full path: {}", full_path);
+
+        self.parse_headers(&res);
+
+        let response_json: serde_json::Value = res.json().unwrap();
+        let pretty_printed = serde_json::to_string_pretty(&response_json).unwrap();
+
+        save_to_file(&full_path, &pretty_printed);
     }
 
     pub fn req_access_token(&mut self) {
@@ -289,7 +294,8 @@ fn save_to_file(dir: &String, text: &String) {
     std::fs::write(dir, text).expect("Unable to write file!");
 }
 
-fn main() {
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn Error>> {
     let args = clap::App::new("reddit-downloader")
         .version("1.0")
         .author("Romeu Vieira <romeu.bizz@gmail.com>")
@@ -346,5 +352,7 @@ fn main() {
 
     reddit_ctx.req_access_token();
     let thread_list = reddit_ctx.req_subreddit();
-    reddit_ctx.req_threads(&dir_str, thread_list);
+    reddit_ctx.req_threads(&dir_str, thread_list).await;
+
+    Ok(())
 }
