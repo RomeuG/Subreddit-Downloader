@@ -1,3 +1,4 @@
+use futures::future;
 use std::env;
 use std::error::Error;
 use std::sync::Arc;
@@ -151,6 +152,11 @@ fn parse_headers(reddit_ctx: &Arc<RwLock<Reddit>>, response: &reqwest::Response)
         .to_string()
         .parse::<i32>()
         .unwrap_or(0);
+}
+
+pub async fn req_thread(reddit_ctx: &Arc<RwLock<Reddit>>, outdir: &String, thread: &String) {
+    let header_auth = reddit_ctx.read().get_bearer_token();
+    get_thread(reddit_ctx, outdir, &thread, &header_auth).await;
 }
 
 pub async fn req_threads(
@@ -403,12 +409,53 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         arg_subreddit.to_string(),
     )));
 
-    println!("test0");
     req_access_token(&reddit_ctx.clone()).await;
-    println!("test1");
-    let thread_list = req_subreddit(&reddit_ctx).await;
-    println!("test2");
-    req_threads(&reddit_ctx, &dir_str, thread_list).await;
+    let mut thread_list = req_subreddit(&reddit_ctx).await;
+
+    let mut remaining_threads = thread_list.len();
+    let mut downloaded_threads: usize = 0;
+    let mut finished: bool = false;
+    let mut remaining_requests: usize;
+
+    loop {
+        let first_thread = &thread_list[downloaded_threads];
+        req_thread(&reddit_ctx, &dir_str, &first_thread).await;
+        remaining_threads -= 1;
+        downloaded_threads += 1;
+
+        {
+            remaining_requests = reddit_ctx.read().remaining_requests as usize;
+        }
+
+        if remaining_requests == 0 {
+            {
+                check_sleep(&reddit_ctx).await;
+            }
+        }
+
+        let upper_roof = if thread_list.len() > remaining_requests {
+            let a = downloaded_threads + remaining_requests;
+            if a > thread_list.len() {
+                thread_list.len()
+            } else {
+                a
+            }
+        } else {
+            thread_list.len()
+        };
+
+        let mut future_vec = vec![];
+        for thread in &thread_list[downloaded_threads..upper_roof] {
+            future_vec.push(req_thread(&reddit_ctx, &dir_str, thread));
+            remaining_threads -= 1;
+            downloaded_threads += 1;
+        }
+        future::join_all(future_vec).await;
+
+        if thread_list.len() == downloaded_threads {
+            break;
+        }
+    }
 
     Ok(())
 }
