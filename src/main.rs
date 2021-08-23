@@ -1,10 +1,8 @@
 use futures::future;
+use parking_lot::RwLock;
 use std::env;
 use std::error::Error;
 use std::sync::Arc;
-// use std::sync::RwLock;
-use parking_lot::RwLock;
-use reqwest::Client;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct AccessToken {
@@ -99,7 +97,7 @@ impl Reddit {
         format!("https://oauth.reddit.com/r/{}/.json", self.subreddit)
     }
 
-    pub fn get_paginated_url(&self, after: &String) -> String {
+    pub fn get_paginated_url(&self, after: &str) -> String {
         format!(
             "https://oauth.reddit.com/r/{}/.json?after={}",
             self.subreddit, after
@@ -154,16 +152,12 @@ fn parse_headers(reddit_ctx: &Arc<RwLock<Reddit>>, response: &reqwest::Response)
         .unwrap_or(0);
 }
 
-pub async fn req_thread(reddit_ctx: &Arc<RwLock<Reddit>>, outdir: &String, thread: &String) {
+pub async fn req_thread(reddit_ctx: &Arc<RwLock<Reddit>>, outdir: &str, thread: &str) {
     let header_auth = reddit_ctx.read().get_bearer_token();
     get_thread(reddit_ctx, outdir, &thread, &header_auth).await;
 }
 
-pub async fn req_threads(
-    reddit_ctx: &Arc<RwLock<Reddit>>,
-    outdir: &String,
-    thread_list: Vec<String>,
-) {
+pub async fn req_threads(reddit_ctx: &Arc<RwLock<Reddit>>, outdir: &str, thread_list: Vec<String>) {
     let header_auth = reddit_ctx.read().get_bearer_token();
 
     for thread in thread_list {
@@ -173,9 +167,9 @@ pub async fn req_threads(
 
 async fn get_thread(
     reddit_ctx: &Arc<RwLock<Reddit>>,
-    outdir: &String,
-    thread_name: &String,
-    header_auth: &String,
+    outdir: &str,
+    thread_name: &str,
+    header_auth: &str,
 ) {
     {
         check_sleep(&reddit_ctx).await;
@@ -200,7 +194,7 @@ async fn get_thread(
 
     println!("Downloaded {}", url);
 
-    let full_path = generate_full_path(outdir.clone(), get_thread_name(&thread_name));
+    let full_path = generate_full_path(outdir, get_thread_name(thread_name).as_str());
     println!("Full path: {}", full_path);
 
     parse_headers(&reddit_ctx, &res);
@@ -229,9 +223,9 @@ pub async fn req_access_token(reddit_ctx: &Arc<RwLock<Reddit>>) {
             .await
             .unwrap();
     }
-    let json = res.json::<AccessToken>().await.unwrap();
 
-    reddit_ctx.write().access_token = Some(json.clone());
+    let json = res.json::<AccessToken>().await.unwrap();
+    reddit_ctx.write().access_token = Some(json);
 }
 
 pub async fn req_subreddit(reddit_ctx: &Arc<RwLock<Reddit>>) -> Vec<String> {
@@ -304,10 +298,10 @@ pub async fn req_subreddit(reddit_ctx: &Arc<RwLock<Reddit>>) -> Vec<String> {
         }
     }
 
-    return thread_url_list;
+    thread_url_list
 }
 
-fn get_thread_name(permalink: &String) -> String {
+fn get_thread_name(permalink: &str) -> String {
     let mut slash_idx = 0;
 
     for (i, c) in permalink.bytes().enumerate() {
@@ -315,17 +309,16 @@ fn get_thread_name(permalink: &String) -> String {
             break;
         }
 
-        if c == '/' as u8 {
+        if c == b'/' {
             slash_idx = i;
         }
     }
 
     let substring = &permalink[slash_idx + 1..permalink.len() - 1];
-
-    return substring.to_string();
+    substring.to_string()
 }
 
-fn generate_full_path(dir: String, permalink: String) -> String {
+fn generate_full_path(dir: &str, permalink: &str) -> String {
     let mut duplicate = false;
     let mut tries = 0;
 
@@ -335,7 +328,7 @@ fn generate_full_path(dir: String, permalink: String) -> String {
         duplicate = true;
     }
 
-    while duplicate == true {
+    while duplicate {
         full_path = format!("{}{}_{}.json", dir, permalink, tries);
 
         if std::path::Path::new(&full_path).exists() {
@@ -346,10 +339,10 @@ fn generate_full_path(dir: String, permalink: String) -> String {
         }
     }
 
-    return full_path.to_string();
+    full_path
 }
 
-fn save_to_file(dir: &String, text: &String) {
+fn save_to_file(dir: &str, text: &str) {
     std::fs::write(dir, text).expect("Unable to write file!");
 }
 
@@ -388,7 +381,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let dir_str: String;
-    if !arg_directory.ends_with("/") {
+    if !arg_directory.ends_with('/') {
         dir_str = format!("{}/", arg_directory);
     } else {
         dir_str = String::from(arg_directory);
@@ -400,7 +393,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let r_pass = env::var("REDDIT_PASS").unwrap();
     let r_useragent = env::var("REDDIT_USERAGENT").unwrap();
 
-    let mut reddit_ctx = Arc::new(RwLock::new(Reddit::new(
+    let reddit_ctx = Arc::new(RwLock::new(Reddit::new(
         r_id,
         r_secret,
         r_user,
@@ -410,17 +403,14 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     )));
 
     req_access_token(&reddit_ctx.clone()).await;
-    let mut thread_list = req_subreddit(&reddit_ctx).await;
+    let thread_list = req_subreddit(&reddit_ctx).await;
 
-    let mut remaining_threads = thread_list.len();
     let mut downloaded_threads: usize = 0;
-    let mut finished: bool = false;
     let mut remaining_requests: usize;
 
     loop {
         let first_thread = &thread_list[downloaded_threads];
         req_thread(&reddit_ctx, &dir_str, &first_thread).await;
-        remaining_threads -= 1;
         downloaded_threads += 1;
 
         {
@@ -434,11 +424,11 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         }
 
         let upper_roof = if thread_list.len() > remaining_requests {
-            let a = downloaded_threads + remaining_requests;
-            if a > thread_list.len() {
+            let res = downloaded_threads + remaining_requests;
+            if res > thread_list.len() {
                 thread_list.len()
             } else {
-                a
+                res
             }
         } else {
             thread_list.len()
@@ -447,9 +437,9 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         let mut future_vec = vec![];
         for thread in &thread_list[downloaded_threads..upper_roof] {
             future_vec.push(req_thread(&reddit_ctx, &dir_str, thread));
-            remaining_threads -= 1;
             downloaded_threads += 1;
         }
+
         future::join_all(future_vec).await;
 
         if thread_list.len() == downloaded_threads {
