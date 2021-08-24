@@ -2,6 +2,7 @@ Subreddit Downloader
 ====================
 
 This program is meant to replace [https://github.com/RomeuG/Reddit-Downloader] and can be used to archive subreddits within its API limits (~1000 most recent threads).
+It is using Tokio for async requests.
 
 Usage
 =====
